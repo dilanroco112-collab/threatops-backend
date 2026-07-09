@@ -33,6 +33,8 @@ MONGODB_URI = os.environ.get("MONGODB_URI", "")
 VT_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 ABUSE_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
 IPINFO_KEY = os.environ.get("IPINFO_TOKEN", "")
+SHODAN_KEY = os.environ.get("SHODAN_API_KEY", "")
+SHODAN_KEY = os.environ.get("SHODAN_API_KEY", "")
 
 client_mongo = MongoClient(MONGODB_URI)
 db = client_mongo.threatops
@@ -97,23 +99,59 @@ def enriquecer_sync(ioc):
         except Exception:
             return {"fuente": "IPInfo", "status": "error"}
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+    def get_shodan():
+        try:
+            r = httpx.get(
+                f"https://api.shodan.io/shodan/host/{ioc}",
+                params={"key": SHODAN_KEY}, timeout=10
+            )
+            if r.status_code == 404:
+                return {
+                    "fuente": "Shodan",
+                    "puertos_abiertos": [],
+                    "servicios": [],
+                    "vulnerabilidades": [],
+                    "status": "ok",
+                    "nota": "Sin datos indexados para este host"
+                }
+            d = r.json()
+            servicios = []
+            for item in d.get("data", [])[:5]:
+                servicio = item.get("product", "") or item.get("_shodan", {}).get("module", "desconocido")
+                servicios.append(f"{item.get('port')}/{servicio}")
+            return {
+                "fuente": "Shodan",
+                "puertos_abiertos": d.get("ports", []),
+                "servicios": servicios,
+                "vulnerabilidades": list(d.get("vulns", [])),
+                "org": d.get("org", "N/A"),
+                "sistema_operativo": d.get("os") or "N/A",
+                "status": "ok"
+            }
+        except Exception:
+            return {"fuente": "Shodan", "status": "error"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         future_vt = executor.submit(get_vt)
         future_abuse = executor.submit(get_abuse)
         future_ipinfo = executor.submit(get_ipinfo)
+        future_shodan = executor.submit(get_shodan)
 
         vt = future_vt.result()
         abuse = future_abuse.result()
         ipinfo = future_ipinfo.result()
+        shodan = future_shodan.result()
 
     score = 0
     if vt.get("status") == "ok":
         score += vt["malicious"] * 2
     if abuse.get("status") == "ok":
         score += abuse["confidence_score"] * 0.5
+    if shodan.get("status") == "ok" and shodan.get("vulnerabilidades"):
+        score += len(shodan["vulnerabilidades"]) * 3
     score = min(round(score), 100)
 
-    return {"fuentes": [vt, abuse, ipinfo], "score": score}
+    return {"fuentes": [vt, abuse, ipinfo, shodan], "score": score}
 
 
 # ============================================
