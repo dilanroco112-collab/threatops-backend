@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ThreatOps Platform</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg: #0a0e14;
+    --bg-panel: #10151d;
+    --bg-panel-2: #141a24;
+    --line: #1f2733;
+    --line-bright: #2a3441;
+    --text: #d7dde5;
+    --text-dim: #6b7686;
+    --text-faint: #414c5c;
+    --accent: #ff5d3a;
+    --accent-dim: #7a2c1c;
+    --low: #2fa876;
+    --medium: #d4a72c;
+    --high: #e0762e;
+    --critical: #e0392f;
+    --mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    --sans: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse 80% 50% at 50% -10%, rgba(255,93,58,0.08), transparent),
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(255,255,255,0.012) 40px);
+    color: var(--text);
+    font-family: var(--sans);
+    min-height: 100vh;
+    padding-bottom: 60px;
+  }
+
+  .topbar {
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, var(--bg-panel), var(--bg));
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    backdrop-filter: blur(8px);
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+  .brand { display:flex; align-items:center; gap:14px; }
+  .brand-mark {
+    width: 34px; height: 34px;
+    border: 1.5px solid var(--accent);
+    border-radius: 4px;
+    display:flex; align-items:center; justify-content:center;
+    font-family: var(--mono);
+    font-size: 15px;
+    color: var(--accent);
+    font-weight: 700;
+    position: relative;
+  }
+  .brand-mark::after {
+    content:'';
+    position:absolute; inset:-4px;
+    border: 1px solid var(--accent-dim);
+    border-radius: 6px;
+    animation: pulse-ring 2.4s ease-out infinite;
+  }
+  @keyframes pulse-ring {
+    0% { transform: scale(1); opacity: 0.6; }
+    100% { transform: scale(1.35); opacity: 0; }
+  }
+  .brand-text .name {
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 0.5px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .brand-text .sub {
+    font-size: 10.5px;
+    color: var(--text-dim);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-top: 1px;
+  }
+  .status-cluster { display:flex; align-items:center; gap: 22px; flex-wrap: wrap; }
+  .status-pill {
+    display:flex; align-items:center; gap: 7px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .dot { width:6px; height:6px; border-radius:50%; background: var(--low); box-shadow: 0 0 8px var(--low); }
+  .dot.warn { background: var(--medium); box-shadow: 0 0 8px var(--medium); }
+  .dot.off { background: var(--text-faint); box-shadow: none; }
+  .conn-input {
+    background: var(--bg-panel-2);
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    width: 260px;
+    outline: none;
+  }
+  .conn-input:focus { border-color: var(--accent-dim); color: var(--text); }
+  .conn-btn {
+    background: transparent;
+    border: 1px solid var(--line-bright);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 10.5px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .conn-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  .wrap { max-width: 1360px; margin: 0 auto; padding: 32px; }
+
+  .analyze-panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 26px 28px;
+    margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+  .analyze-panel::before {
+    content:'';
+    position:absolute; left:0; top:0; bottom:0; width: 3px;
+    background: linear-gradient(180deg, var(--accent), transparent);
+  }
+  .analyze-title {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    letter-spacing: 0.3px;
+    margin-bottom: 4px;
+  }
+  .analyze-desc { font-size: 12.5px; color: var(--text-dim); margin-bottom: 18px; }
+  .analyze-row { display:flex; gap: 10px; }
+  .ioc-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--line-bright);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 13px 16px;
+    border-radius: 4px;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .ioc-input:focus { border-color: var(--accent); }
+  .ioc-input::placeholder { color: var(--text-faint); }
+  .analyze-btn {
+    background: var(--accent);
+    color: #180a06;
+    border: none;
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.5px;
+    padding: 0 26px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .analyze-btn:hover { background: #ff7452; }
+  .analyze-btn:disabled { background: var(--line-bright); color: var(--text-faint); cursor: wait; }
+
+  .quick-set { display:flex; gap:8px; margin-top:12px; flex-wrap: wrap; }
+  .quick-chip {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+    background: var(--bg-panel-2);
+    border: 1px solid var(--line);
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .quick-chip:hover { border-color: var(--text-dim); color: var(--text); }
+
+  .live-result {
+    margin-top: 18px;
+    border-top: 1px dashed var(--line);
+    padding-top: 18px;
+    display: none;
+  }
+  .live-result.show { display: block; animation: fadein .3s ease; }
+  @keyframes fadein { from{opacity:0; transform:translateY(4px);} to{opacity:1; transform:translateY(0);} }
+  .live-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; flex-wrap: wrap; gap: 8px; }
+  .live-ioc { font-family: var(--mono); font-size: 15px; font-weight:700; }
+  .sev-badge {
+    font-family: var(--mono); font-size: 10.5px; font-weight:700; letter-spacing:1px;
+    padding: 4px 12px; border-radius: 3px; text-transform: uppercase;
+  }
+  .sev-LOW { background: rgba(47,168,118,0.14); color: var(--low); border:1px solid rgba(47,168,118,0.35); }
+  .sev-MEDIUM { background: rgba(212,167,44,0.14); color: var(--medium); border:1px solid rgba(212,167,44,0.35); }
+  .sev-HIGH { background: rgba(224,118,46,0.14); color: var(--high); border:1px solid rgba(224,118,46,0.35); }
+  .sev-CRITICAL { background: rgba(224,57,47,0.16); color: var(--critical); border:1px solid rgba(224,57,47,0.4); }
+  .sev-UNKNOWN { background: rgba(107,118,134,0.14); color: var(--text-dim); border:1px solid var(--line); }
+
+  .live-grid { display:grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .live-col { font-size: 13px; line-height: 1.7; color: var(--text-dim); }
+  .live-col b { color: var(--text); }
+  .live-narr { font-size: 13px; color: var(--text); line-height: 1.6; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 14px 16px; margin-top: 6px; }
+  .live-source-row { display:flex; gap: 8px; margin-top: 10px; flex-wrap:wrap; }
+  .src-tag { font-family: var(--mono); font-size: 10px; color: var(--text-dim); background: var(--bg-panel-2); border: 1px solid var(--line); padding: 3px 8px; border-radius: 3px; }
+
+  .ioc-chip {
+    font-family: var(--mono); font-size: 11px; color: var(--text);
+    background: var(--bg-panel-2); border: 1px solid var(--line-bright);
+    padding: 6px 12px; border-radius: 4px; cursor: default;
+  }
+  @keyframes siempulse {
+    0% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+    70% { box-shadow: 0 0 0 6px transparent; opacity: 0.4; }
+    100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+  }
+
+  .kpi-row { display:grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+  .kpi-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 20px 22px;
+  }
+  .kpi-label { font-family: var(--mono); font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-faint); margin-bottom: 10px; }
+  .kpi-value { font-family: var(--mono); font-size: 32px; font-weight: 700; color: var(--text); line-height: 1; }
+  .kpi-value.accent { color: var(--accent); }
+  .kpi-value.crit { color: var(--critical); }
+  .kpi-sub { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+
+  .main-grid { display:grid; grid-template-columns: 1.3fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .panel {
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .panel-head {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .panel-title { font-family: var(--mono); font-size: 12px; letter-spacing: 0.5px; color: var(--text); }
+  .panel-meta { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+  .panel-body { padding: 20px; }
+
+  #map { height: 320px; width: 100%; filter: saturate(0.5) brightness(0.7) contrast(1.1); }
+
+  .chart-wrap { height: 280px; position: relative; }
+  .legend-row { display:flex; gap: 16px; margin-top: 14px; flex-wrap: wrap; justify-content: center; }
+  .legend-item { display:flex; align-items:center; gap:6px; font-family: var(--mono); font-size: 10.5px; color: var(--text-dim); }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; }
+
+  .table-panel { background: var(--bg-panel); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg-panel-2);
+  }
+  tbody td {
+    padding: 13px 20px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--line);
+    color: var(--text-dim);
+  }
+  tbody tr:hover { background: var(--bg-panel-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  .td-ioc { font-family: var(--mono); color: var(--text); font-weight: 600; }
+  .td-score { font-family: var(--mono); }
+  .score-bar-wrap { display:flex; align-items:center; gap:8px; }
+  .score-bar-track { width: 60px; height: 4px; background: var(--line); border-radius: 2px; overflow:hidden; }
+  .score-bar-fill { height: 100%; border-radius: 2px; }
+
+  .empty-state { padding: 60px 20px; text-align:center; color: var(--text-faint); font-family: var(--mono); font-size: 12px; }
+  .empty-state .glyph { font-size: 28px; margin-bottom: 10px; opacity: 0.4; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line-bright); border-radius: 4px; }
+
+  .leaflet-popup-content-wrapper { background: var(--bg-panel); color: var(--text); border-radius: 4px; }
+  .leaflet-popup-tip { background: var(--bg-panel); }
+  .leaflet-popup-content { font-family: var(--mono); font-size: 11px; margin: 10px 12px; }
+
+  @media (max-width: 980px) {
+    .kpi-row { grid-template-columns: 1fr 1fr; }
+    .main-grid { grid-template-columns: 1fr; }
+    .live-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">TO</div>
+      <div class="brand-text">
+        <div class="name">THREATOPS</div>
+        <div class="sub">Olimpia · Offensive Security</div>
+      </div>
+    </div>
+    <div class="status-cluster">
+      <div class="status-pill"><span class="dot" id="statusDot"></span><span id="statusText">verificando conexión</span></div>
+    </div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="analyze-panel">
+      <div class="analyze-title">▸ análisis bajo demanda</div>
+      <div class="analyze-desc">Ingresa una IP, dominio, hash o URL. n8n orquesta el enriquecimiento y el agente de IA devuelve un veredicto.</div>
+      <div class="analyze-row">
+        <input class="ioc-input" id="iocInput" placeholder="185.220.101.45" autocomplete="off">
+        <button class="analyze-btn" id="analyzeBtn" onclick="analyzeIOC()">ANALIZAR</button>
+      </div>
+      <div class="quick-set">
+        <span class="quick-chip" onclick="fillIOC('8.8.8.8')">8.8.8.8</span>
+        <span class="quick-chip" onclick="fillIOC('185.220.101.45')">185.220.101.45</span>
+        <span class="quick-chip" onclick="fillIOC('194.165.16.11')">194.165.16.11</span>
+      </div>
+
+      <div class="live-result" id="liveResult">
+        <div class="live-head">
+          <div class="live-ioc" id="rIoc">—</div>
+          <div style="display:flex; align-items:center; gap:10px;">
+            <div class="sev-badge sev-LOW" id="rSev">—</div>
+            <button class="conn-btn" id="pdfBtn" onclick="downloadPDF()" style="border-color:var(--accent); color:var(--accent);">↓ descargar informe</button>
+          </div>
+        </div>
+        <div class="live-grid">
+          <div class="live-col">
+            <div><b>Score de riesgo</b> — <span id="rScore">—</span>/100</div>
+            <div><b>Táctica MITRE</b> — <span id="rMitre">—</span></div>
+            <div><b>Remediación</b> — <span id="rRemed">—</span></div>
+          </div>
+          <div class="live-col">
+            <div><b>Veredicto</b></div>
+            <div id="rVeredicto" style="color:var(--text); margin-top:2px;">—</div>
+          </div>
+        </div>
+        <div class="live-narr" id="rNarrativa">—</div>
+        <div class="live-source-row" id="rSources"></div>
+
+        <div id="siemSection" style="display:none; margin-top:18px; border-top:1px dashed var(--line); padding-top:16px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;">
+            <div style="font-family:var(--mono); font-size:12px; color:var(--text); display:flex; align-items:center; gap:8px;">
+              <span id="siemPulse" style="width:7px;height:7px;border-radius:50%;display:inline-block;"></span>
+              correlación siem
+            </div>
+            <div class="sev-badge sev-LOW" id="siemMainBadge">—</div>
+          </div>
+          <div id="siemReglas" style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px;"></div>
+          <div id="siemResumen" style="font-size:13px; color:var(--text); line-height:1.6; background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:14px 16px; margin-bottom:12px;"></div>
+          <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">IOCs correlacionados</div>
+          <div id="siemIocs" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="kpi-row">
+      <div class="kpi-card">
+        <div class="kpi-label">IOCs analizados</div>
+        <div class="kpi-value" id="kpiTotal">0</div>
+        <div class="kpi-sub">histórico en base de datos</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Amenazas críticas</div>
+        <div class="kpi-value crit" id="kpiCritical">0</div>
+        <div class="kpi-sub">severidad HIGH o CRITICAL</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Score promedio</div>
+        <div class="kpi-value accent" id="kpiAvg">0</div>
+        <div class="kpi-sub">sobre 100 puntos</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Países detectados</div>
+        <div class="kpi-value" id="kpiCountries">0</div>
+        <div class="kpi-sub">origen de infraestructura</div>
+      </div>
+    </div>
+
+    <div class="main-grid">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">▸ mapa de origen</div>
+          <div class="panel-meta" id="mapMeta">0 ubicaciones</div>
+        </div>
+        <div id="map"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">▸ distribución de severidad</div>
+          <div class="panel-meta" id="chartMeta">—</div>
+        </div>
+        <div class="panel-body">
+          <div class="chart-wrap"><canvas id="sevChart"></canvas></div>
+          <div class="legend-row">
+            <div class="legend-item"><div class="legend-dot" style="background:#2fa876"></div>LOW</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#d4a72c"></div>MEDIUM</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#e0762e"></div>HIGH</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#e0392f"></div>CRITICAL</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-panel">
+      <div class="panel-head">
+        <div class="panel-title">▸ historial de análisis</div>
+        <div class="panel-meta" id="tableMeta">últimos registros</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>IOC</th>
+            <th>Tipo</th>
+            <th>Score</th>
+            <th>Severidad</th>
+            <th>País</th>
+            <th>Táctica MITRE</th>
+            <th>Analizado</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody">
+          <tr><td colspan="7"><div class="empty-state"><div class="glyph">◌</div>Sin datos aún — conecta la API y analiza un IOC</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+<script>
+// URLs fijas — no editables desde la interfaz
+const N8N_URL = 'https://dilan8.app.n8n.cloud/webhook/analyze';
+const FLASK_URL = window.location.origin;
+let currentIOC = '';
+
+let map, sevChart, markersLayer;
+
+function initMap(){
+  map = L.map('map', { zoomControl: true, attributionControl: false }).setView([20, 10], 1.6);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 18 }).addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+}
+
+function initChart(){
+  const ctx = document.getElementById('sevChart').getContext('2d');
+  sevChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['LOW','MEDIUM','HIGH','CRITICAL'],
+      datasets: [{
+        data: [0,0,0,0],
+        backgroundColor: ['#2fa876','#d4a72c','#e0762e','#e0392f'],
+        borderColor: '#10151d',
+        borderWidth: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+async function checkConnection(){
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  try{
+    const r = await fetch(FLASK_URL + '/', { headers: {'ngrok-skip-browser-warning':'true'} });
+    if(r.ok){ text.textContent = 'motor conectado'; dot.className='dot'; }
+    else { text.textContent = 'error de conexión'; dot.className='dot warn'; }
+  }catch(e){
+    text.textContent = 'sin respuesta'; dot.className='dot warn';
+  }
+}
+
+function fillIOC(v){ document.getElementById('iocInput').value = v; }
+
+function severityColor(sev){
+  return {LOW:'#2fa876',MEDIUM:'#d4a72c',HIGH:'#e0762e',CRITICAL:'#e0392f'}[sev] || '#6b7686';
+}
+
+async function analyzeIOC(){
+  const ioc = document.getElementById('iocInput').value.trim();
+  if(!ioc){ return; }
+
+  const btn = document.getElementById('analyzeBtn');
+  btn.disabled = true;
+  btn.textContent = 'ANALIZANDO...';
+
+  try{
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
+
+    const r = await fetch(N8N_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ioc}),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    const data = await r.json();
+    currentIOC = ioc;
+    renderLiveResult(data);
+    await loadIOCs();
+  }catch(e){
+    console.error('Error en analyzeIOC:', e);
+    alert('No se pudo contactar el webhook de n8n. Detalle: ' + e.message);
+  }finally{
+    btn.disabled = false;
+    btn.textContent = 'ANALIZAR';
+  }
+}
+
+async function downloadPDF(){
+  if(!currentIOC){ return; }
+  const btn = document.getElementById('pdfBtn');
+  btn.textContent = 'generando...';
+  try{
+    const url = FLASK_URL + '/report/pdf?ioc=' + encodeURIComponent(currentIOC);
+    const r = await fetch(url, { headers: {'ngrok-skip-browser-warning':'true'} });
+    if(!r.ok){ throw new Error('no encontrado'); }
+    const blob = await r.blob();
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'ThreatOps_Informe_' + currentIOC.replace(/\./g,'_') + '.pdf';
+    link.click();
+  }catch(e){
+    alert('No se pudo generar el PDF. Verifica que Flask esté activo y el IOC ya esté guardado en MongoDB.');
+  }finally{
+    btn.textContent = '↓ descargar informe';
+  }
+}
+
+function renderLiveResult(data){
+  // n8n puede devolver el objeto directo, o envuelto en resultado/array
+  let d = Array.isArray(data) ? data[0] : (data.resultado || data);
+  const sev = d.severity || d.severidad || 'UNKNOWN';
+
+  document.getElementById('liveResult').classList.add('show');
+  document.getElementById('rIoc').textContent = d.ioc_value || d.ioc || '—';
+  const sevBadge = document.getElementById('rSev');
+  sevBadge.textContent = sev;
+  sevBadge.className = 'sev-badge sev-' + sev;
+
+  document.getElementById('rScore').textContent = d.score ?? '—';
+  document.getElementById('rMitre').textContent = d.mitre_tactica || d.mitre || '—';
+  document.getElementById('rRemed').textContent = d.remediacion || '—';
+  document.getElementById('rVeredicto').textContent = d.veredicto || '—';
+  document.getElementById('rNarrativa').textContent = d.narrativa || 'Sin narrativa disponible.';
+
+  let fuentes = d.fuentes || [];
+  if(typeof fuentes === 'string'){
+    try{ fuentes = JSON.parse(fuentes); }catch(e){ fuentes = []; }
+  }
+  const srcWrap = document.getElementById('rSources');
+  srcWrap.innerHTML = '';
+  fuentes.forEach(f => {
+    const tag = document.createElement('span');
+    tag.className = 'src-tag';
+    tag.textContent = f.fuente + (f.status === 'ok' ? ' ✓' : ' ✕');
+    srcWrap.appendChild(tag);
+  });
+
+  // Correlación SIEM (si viene en la respuesta)
+  const siemSection = document.getElementById('siemSection');
+  let siem = d.correlacion_siem;
+  if (typeof siem === 'string') {
+    try { siem = JSON.parse(siem); } catch(e) { siem = null; }
+  }
+  if (siem && typeof siem === 'object') {
+    siemSection.style.display = 'block';
+    const sevCampana = siem.severidad_campana || 'LOW';
+    const hayCorr = siem.hay_correlacion;
+    const color = severityColor(sevCampana);
+
+    const pulse = document.getElementById('siemPulse');
+    pulse.style.background = hayCorr ? color : 'var(--text-faint)';
+    pulse.style.color = color;
+    pulse.style.animation = hayCorr ? 'siempulse 1.8s infinite' : 'none';
+
+    const mainBadge = document.getElementById('siemMainBadge');
+    mainBadge.textContent = hayCorr ? `PATRÓN · ${sevCampana}` : 'SIN PATRÓN';
+    mainBadge.className = 'sev-badge sev-' + sevCampana;
+
+    const reglasWrap = document.getElementById('siemReglas');
+    let reglas = siem.reglas_disparadas || [];
+    if (typeof reglas === 'string') {
+      try { reglas = JSON.parse(reglas); } catch(e) { reglas = []; }
+    }
+    if (!Array.isArray(reglas)) reglas = [];
+    reglasWrap.innerHTML = reglas.map(r =>
+      `<span class="src-tag" style="border-color:${color}55; color:${color};">⚑ ${r}</span>`
+    ).join('');
+
+    document.getElementById('siemResumen').textContent = siem.resumen || 'Sin correlaciones detectadas en el historial reciente.';
+
+    const iocsWrap = document.getElementById('siemIocs');
+    let iocsInvolucrados = siem.iocs_involucrados || [];
+    if (typeof iocsInvolucrados === 'string') {
+      try { iocsInvolucrados = JSON.parse(iocsInvolucrados); } catch(e) { iocsInvolucrados = []; }
+    }
+    if (!Array.isArray(iocsInvolucrados)) iocsInvolucrados = [];
+    if (iocsInvolucrados.length) {
+      iocsWrap.innerHTML = iocsInvolucrados.map(i =>
+        `<span class="ioc-chip">${i}</span>`
+      ).join('');
+    } else {
+      iocsWrap.innerHTML = `<span style="font-size:11px; color:var(--text-faint); font-family:var(--mono);">sin IOCs listados</span>`;
+    }
+  } else {
+    siemSection.style.display = 'none';
+  }
+}
+
+function normalizarFuentes(iocs){
+  iocs.forEach(i => {
+    if(typeof i.fuentes === 'string'){
+      try{ i.fuentes = JSON.parse(i.fuentes); }catch(e){ i.fuentes = []; }
+    }
+  });
+  return iocs;
+}
+
+async function loadIOCs(){
+  try{
+    const r = await fetch(FLASK_URL + '/iocs', { headers: {'ngrok-skip-browser-warning':'true'} });
+    const data = await r.json();
+    const iocs = normalizarFuentes(data.iocs || []);
+    renderKPIs(iocs);
+    renderTable(iocs);
+    renderChart(iocs);
+    renderMap(iocs);
+  }catch(e){ /* silent */ }
+}
+
+function renderKPIs(iocs){
+  document.getElementById('kpiTotal').textContent = iocs.length;
+  const critical = iocs.filter(i => (i.severity==='HIGH'||i.severity==='CRITICAL')).length;
+  document.getElementById('kpiCritical').textContent = critical;
+  const avg = iocs.length ? Math.round(iocs.reduce((a,i)=>a+(i.score||0),0)/iocs.length) : 0;
+  document.getElementById('kpiAvg').textContent = avg;
+  const countries = new Set(iocs.map(i => {
+    const ab = (i.fuentes||[]).find(f=>f.fuente==='AbuseIPDB');
+    return ab ? ab.country : null;
+  }).filter(Boolean));
+  document.getElementById('kpiCountries').textContent = countries.size;
+}
+
+function renderTable(iocs){
+  const tbody = document.getElementById('tableBody');
+  if(!iocs.length){
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><div class="glyph">◌</div>Sin datos aún — analiza un IOC arriba</div></td></tr>';
+    return;
+  }
+  const sorted = [...iocs].sort((a,b)=> new Date(b.created_at) - new Date(a.created_at));
+  tbody.innerHTML = sorted.slice(0,25).map(i=>{
+    const ab = (i.fuentes||[]).find(f=>f.fuente==='AbuseIPDB') || {};
+    const sev = i.severity || 'UNKNOWN';
+    const color = severityColor(sev);
+    const dateStr = i.created_at ? new Date(i.created_at).toLocaleString('es-CO', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+    return `<tr>
+      <td class="td-ioc">${i.ioc_value||'—'}</td>
+      <td>${i.ioc_type||'ip'}</td>
+      <td class="td-score"><div class="score-bar-wrap"><span>${i.score??0}</span><div class="score-bar-track"><div class="score-bar-fill" style="width:${i.score||0}%;background:${color}"></div></div></div></td>
+      <td><span class="sev-badge sev-${sev}">${sev}</span></td>
+      <td>${ab.country||'—'}</td>
+      <td>${i.mitre_tactica||'—'}</td>
+      <td style="font-family:var(--mono);font-size:11px;color:var(--text-faint)">${dateStr}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('tableMeta').textContent = iocs.length + ' registros totales';
+}
+
+function renderChart(iocs){
+  const counts = {LOW:0,MEDIUM:0,HIGH:0,CRITICAL:0};
+  iocs.forEach(i => { if(counts[i.severity] !== undefined) counts[i.severity]++; });
+  sevChart.data.datasets[0].data = [counts.LOW,counts.MEDIUM,counts.HIGH,counts.CRITICAL];
+  sevChart.update();
+  document.getElementById('chartMeta').textContent = iocs.length + ' clasificados';
+}
+
+function renderMap(iocs){
+  markersLayer.clearLayers();
+  let count = 0;
+  iocs.forEach(i => {
+    const ipinfo = (i.fuentes||[]).find(f=>f.fuente==='IPInfo');
+    if(ipinfo && ipinfo.ubicacion){
+      const [lat,lng] = ipinfo.ubicacion.split(',').map(Number);
+      if(!isNaN(lat) && !isNaN(lng)){
+        const color = severityColor(i.severity);
+        const marker = L.circleMarker([lat,lng], {
+          radius: 6, fillColor: color, color: color, weight: 1, fillOpacity: 0.55
+        }).bindPopup(`<b>${i.ioc_value}</b><br>Score: ${i.score}<br>${ipinfo.ciudad||''}, ${ipinfo.pais||''}`);
+        markersLayer.addLayer(marker);
+        count++;
+      }
+    }
+  });
+  document.getElementById('mapMeta').textContent = count + ' ubicaciones';
+}
+
+document.getElementById('iocInput').addEventListener('keydown', e => { if(e.key==='Enter') analyzeIOC(); });
+
+initMap();
+initChart();
+checkConnection();
+loadIOCs();
+setInterval(loadIOCs, 20000);
+setInterval(checkConnection, 15000);
+</script>
+</body>
+</html>
