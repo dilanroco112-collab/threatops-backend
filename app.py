@@ -29,6 +29,7 @@ def add_cors(response):
 
 
 # CONFIGURACIÓN — todo desde variables de entorno
+
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 VT_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 ABUSE_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
@@ -41,7 +42,9 @@ client_mongo = MongoClient(MONGODB_URI)
 db = client_mongo.threatops
 
 
+
 # DETECTOR DE TIPO DE IOC
+
 import re
 import base64
 
@@ -65,6 +68,7 @@ def detectar_tipo_ioc(valor):
 
 
 # ENRIQUECIMIENTO — 3 APIs en paralelo
+
 def enriquecer_ip(ioc):
 
     def get_vt():
@@ -337,8 +341,8 @@ def enriquecer_url(url_completa):
     return {"fuentes": [vt, urlscan], "score": score}
 
 
+# GENERADOR DE PDF — nivel ingeniería
 
-# GENERADOR DE PDF
 def generar_pdf_informe(doc_data):
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
@@ -487,8 +491,8 @@ def generar_pdf_informe(doc_data):
     return buffer
 
 
-
 # ENDPOINTS
+
 @app.route("/")
 def root():
     return jsonify({"status": "running", "plataforma": "ThreatOps v1.0", "dashboard": "/dashboard"})
@@ -535,11 +539,18 @@ def get_iocs():
 
 def get_threatfox(ioc_valor):
     try:
+        if not THREATFOX_KEY:
+            return {
+                "fuente": "ThreatFox",
+                "encontrado": False,
+                "status": "ok",
+                "nota": "No disponible (API key no configurada)"
+            }
         r = httpx.post(
             "https://threatfox-api.abuse.ch/api/v1/",
             headers={"Auth-Key": THREATFOX_KEY},
             json={"query": "search_ioc", "search_term": ioc_valor},
-            timeout=8
+            timeout=10
         )
         d = r.json()
         if d.get("query_status") != "ok" or not d.get("data"):
@@ -547,7 +558,7 @@ def get_threatfox(ioc_valor):
                 "fuente": "ThreatFox",
                 "encontrado": False,
                 "status": "ok",
-                "nota": "sin coincidencias en base de datos de malware conocido"
+                "nota": "No se encontraron IOCs asociados en la base de datos de malware conocido"
             }
         primero = d["data"][0]
         return {
@@ -560,8 +571,13 @@ def get_threatfox(ioc_valor):
             "tags": primero.get("tags") or [],
             "status": "ok"
         }
-    except Exception:
-        return {"fuente": "ThreatFox", "status": "error"}
+    except Exception as e:
+        return {
+            "fuente": "ThreatFox",
+            "encontrado": False,
+            "status": "ok",
+            "nota": "No disponible en este momento"
+        }
 
 
 def extraer_org(fuentes_raw):
@@ -638,12 +654,35 @@ def hunt():
     # 4. THREATFOX — vinculacion con malware conocido
     threatfox = get_threatfox(ioc)
 
+    # 5. EVIDENCIAS DEL ULTIMO ANALISIS — para que el Hunter pueda citarlas
+    evidencias = []
+    if historial:
+        ultimo = historial[-1]
+        evidencias.append(f"Score de riesgo: {ultimo.get('score', 0)}/100")
+        if ultimo.get("mitre_tactica"):
+            evidencias.append(f"MITRE: {ultimo.get('mitre_tactica')}")
+        try:
+            fuentes_ultimo = ultimo.get("fuentes")
+            if isinstance(fuentes_ultimo, str):
+                fuentes_ultimo = json.loads(fuentes_ultimo)
+            for f in fuentes_ultimo or []:
+                if f.get("fuente") == "VirusTotal" and f.get("status") == "ok":
+                    evidencias.append(
+                        f"VirusTotal: {f.get('malicious', 0)} maliciosos de "
+                        f"{f.get('malicious', 0) + f.get('suspicious', 0) + f.get('harmless', 0) + f.get('undetected', 0)} motores"
+                    )
+                if f.get("fuente") == "AbuseIPDB" and f.get("status") == "ok":
+                    evidencias.append(f"AbuseIPDB: {f.get('confidence_score', 0)}% confianza, {f.get('total_reports', 0)} reportes")
+        except Exception:
+            pass
+
     return jsonify({
         "ioc": ioc,
         "correlacion_historica": correlacion_historica,
         "infraestructura_relacionada": infra_relacionada,
         "iocs_relacionados": iocs_relacionados,
-        "threatfox": threatfox
+        "threatfox": threatfox,
+        "evidencias_analisis_previo": evidencias
     })
 
 
@@ -668,5 +707,7 @@ def report_pdf():
 
 
 if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
