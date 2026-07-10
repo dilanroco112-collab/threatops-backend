@@ -379,6 +379,82 @@
           <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">IOCs correlacionados</div>
           <div id="siemIocs" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
         </div>
+
+        <div id="hunterSection" style="display:none; margin-top:18px; border-top:1px dashed var(--line); padding-top:16px;">
+          <div style="font-family:var(--mono); font-size:12px; color:var(--text); margin-bottom:14px; display:flex; align-items:center; gap:8px;">
+            <span style="width:7px;height:7px;border-radius:50%;background:#8a5cf6;display:inline-block;"></span>
+            threat hunting
+          </div>
+
+          <!-- Banner de decisión -->
+          <div id="decisionBanner" style="border-radius:6px; padding:18px 20px; margin-bottom:16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+            <div>
+              <div style="font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:1.5px; opacity:0.85; margin-bottom:4px;">decisión recomendada</div>
+              <div id="decisionAccion" style="font-size:24px; font-weight:700; letter-spacing:0.5px;">—</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:1.5px; opacity:0.85; margin-bottom:4px;">confianza</div>
+              <div id="decisionConfianza" style="font-size:24px; font-weight:700;">—</div>
+            </div>
+            <div id="decisionPrioridad" class="sev-badge sev-LOW" style="align-self:flex-start;">—</div>
+          </div>
+
+          <!-- Hipótesis -->
+          <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:6px;">hipótesis</div>
+          <div id="hunterHipotesis" style="font-size:13px; color:var(--text); line-height:1.65; background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:14px 16px; margin-bottom:16px;"></div>
+
+          <!-- Campaña + MITRE en grid -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+            <div style="background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:12px 14px;">
+              <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">campaña probable</div>
+              <div id="hunterCampanaTipo" style="font-size:15px; font-weight:600; color:var(--text); margin-bottom:6px;">—</div>
+              <div id="hunterCampanaEvidencias" style="display:flex; gap:4px; flex-wrap:wrap;"></div>
+            </div>
+            <div style="background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:12px 14px;">
+              <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">mitre att&ck</div>
+              <div id="hunterMitreTecnica" style="font-size:15px; font-weight:600; color:var(--text); margin-bottom:2px;">—</div>
+              <div id="hunterMitreTactica" style="font-size:11px; color:var(--text-faint);">—</div>
+            </div>
+          </div>
+
+          <!-- Nivel de confianza desglosado -->
+          <div style="background:var(--bg); border:1px solid var(--line); border-radius:4px; padding:12px 14px; margin-bottom:16px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+              <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px;">nivel de confianza</div>
+              <div id="hunterConfianzaNivel" class="sev-badge sev-LOW">—</div>
+            </div>
+            <div id="hunterFactores" style="font-size:12px; line-height:1.9;"></div>
+          </div>
+
+          <!-- Acciones inmediatas -->
+          <div style="margin-bottom:14px;">
+            <div style="font-family:var(--mono); font-size:10px; color:#e0392f; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">⚡ acciones inmediatas</div>
+            <div id="hunterAccionesInmediatas" style="font-size:13px; line-height:2;"></div>
+          </div>
+
+          <!-- Recomendaciones de seguimiento -->
+          <div style="margin-bottom:14px;">
+            <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">recomendaciones de seguimiento</div>
+            <div id="hunterRecomendaciones" style="font-size:13px; line-height:2;"></div>
+          </div>
+
+          <!-- Impacto potencial -->
+          <div style="margin-bottom:14px;">
+            <div style="font-family:var(--mono); font-size:10px; color:var(--text-faint); text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">impacto potencial si se confirma</div>
+            <div id="hunterImpacto" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+          </div>
+
+          <!-- Conclusión -->
+          <div style="font-size:12px; color:var(--text-faint); font-style:italic; line-height:1.6; padding-top:10px; border-top:1px solid var(--line);">
+            <span id="hunterConclusion"></span>
+          </div>
+
+          <!-- Metadata técnica -->
+          <div style="display:flex; gap:16px; margin-top:12px; font-family:var(--mono); font-size:10px; color:var(--text-faint);">
+            <span>⏱ <span id="hunterDuracion">—</span>s</span>
+            <span id="hunterFuentesConsultadas"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -507,6 +583,16 @@ function fillIOC(v){ document.getElementById('iocInput').value = v; }
 
 function severityColor(sev){
   return {LOW:'#2fa876',MEDIUM:'#d4a72c',HIGH:'#e0762e',CRITICAL:'#e0392f'}[sev] || '#6b7686';
+}
+
+function decisionStyle(accion){
+  const map = {
+    'Bloquear':   {bg:'#e0392f22', border:'#e0392f', text:'#e0392f'},
+    'Investigar': {bg:'#e0762e22', border:'#e0762e', text:'#e0762e'},
+    'Monitorear': {bg:'#d4a72c22', border:'#d4a72c', text:'#d4a72c'},
+    'Ignorar':    {bg:'#2fa87622', border:'#2fa876', text:'#2fa876'}
+  };
+  return map[accion] || {bg:'#6b768622', border:'#6b7686', text:'#6b7686'};
 }
 
 async function analyzeIOC(){
@@ -639,6 +725,85 @@ function renderLiveResult(data){
     }
   } else {
     siemSection.style.display = 'none';
+  }
+
+  // ================= THREAT HUNTER =================
+  const hunterSection = document.getElementById('hunterSection');
+  let hunt = d.threat_hunting || d.hunt_result;
+  if (typeof hunt === 'string') {
+    try { hunt = JSON.parse(hunt); } catch(e) { hunt = null; }
+  }
+
+  if (hunt && typeof hunt === 'object' && hunt.decision_final) {
+    hunterSection.style.display = 'block';
+
+    // Banner de decisión
+    const decision = hunt.decision_final || {};
+    const dStyle = decisionStyle(decision.accion);
+    const banner = document.getElementById('decisionBanner');
+    banner.style.background = dStyle.bg;
+    banner.style.border = `1px solid ${dStyle.border}`;
+    document.getElementById('decisionAccion').textContent = decision.accion || '—';
+    document.getElementById('decisionAccion').style.color = dStyle.text;
+    document.getElementById('decisionConfianza').textContent = (decision.confianza || 0) + '%';
+    document.getElementById('decisionConfianza').style.color = dStyle.text;
+    const prioBadge = document.getElementById('decisionPrioridad');
+    prioBadge.textContent = decision.prioridad || '—';
+    prioBadge.className = 'sev-badge sev-' + (decision.prioridad === 'P1' ? 'CRITICAL' : decision.prioridad === 'P2' ? 'HIGH' : 'LOW');
+
+    // Hipótesis
+    document.getElementById('hunterHipotesis').textContent = hunt.hipotesis || 'Sin hipótesis disponible.';
+
+    // Campaña
+    const campana = hunt.campana || {};
+    document.getElementById('hunterCampanaTipo').textContent = `${campana.tipo || '—'} (${campana.confianza || 0}%)`;
+    const campEvid = campana.evidencias || [];
+    document.getElementById('hunterCampanaEvidencias').innerHTML = campEvid.map(e =>
+      `<span class="src-tag">${e}</span>`
+    ).join('');
+
+    // MITRE
+    const mitre = hunt.mitre || {};
+    document.getElementById('hunterMitreTecnica').textContent = mitre.tecnica ? `${mitre.tecnica} — ${mitre.nombre_tecnica || ''}` : '—';
+    document.getElementById('hunterMitreTactica').textContent = mitre.tactica || '';
+
+    // Confianza desglosada
+    const confDesglose = hunt.confianza_desglose || {};
+    const nivelBadge = document.getElementById('hunterConfianzaNivel');
+    nivelBadge.textContent = confDesglose.nivel || '—';
+    nivelBadge.className = 'sev-badge sev-' + (confDesglose.nivel === 'Alta' ? 'HIGH' : confDesglose.nivel === 'Moderada' ? 'MEDIUM' : 'LOW');
+    const factoresFavor = (confDesglose.factores_a_favor || []).map(f => `<div style="color:#2fa876;">✓ ${f}</div>`).join('');
+    const factoresContra = (confDesglose.factores_en_contra || []).map(f => `<div style="color:#e0762e;">✕ ${f}</div>`).join('');
+    document.getElementById('hunterFactores').innerHTML = factoresFavor + factoresContra;
+
+    // Acciones inmediatas
+    const acciones = hunt.acciones_inmediatas || [];
+    document.getElementById('hunterAccionesInmediatas').innerHTML = acciones.map(a =>
+      `<div>🔴 ${a}</div>`
+    ).join('') || '<span style="color:var(--text-faint);">Sin acciones urgentes identificadas</span>';
+
+    // Recomendaciones
+    const recos = hunt.recomendaciones || [];
+    document.getElementById('hunterRecomendaciones').innerHTML = recos.map(r =>
+      `<div>→ ${r}</div>`
+    ).join('') || '<span style="color:var(--text-faint);">Sin recomendaciones adicionales</span>';
+
+    // Impacto potencial
+    const impacto = hunt.impacto_potencial || [];
+    document.getElementById('hunterImpacto').innerHTML = impacto.map(i =>
+      `<span class="src-tag" style="border-color:#e0392f55; color:#e0392f;">${i}</span>`
+    ).join('') || '<span style="font-size:11px; color:var(--text-faint);">Sin datos</span>';
+
+    // Conclusión
+    document.getElementById('hunterConclusion').textContent = hunt.conclusion || '';
+
+    // Metadata
+    document.getElementById('hunterDuracion').textContent = hunt.duracion_analisis_segundos || '—';
+    const fuentesC = hunt.fuentes_consultadas || {};
+    const fuentesTxt = Object.entries(fuentesC).filter(([k,v]) => v).map(([k]) => k).join(', ');
+    document.getElementById('hunterFuentesConsultadas').textContent = fuentesTxt ? `fuentes: ${fuentesTxt}` : '';
+  } else {
+    hunterSection.style.display = 'none';
   }
 }
 
