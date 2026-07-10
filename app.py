@@ -342,7 +342,7 @@ def enriquecer_url(url_completa):
 
 
 # GENERADOR DE PDF 
-=
+
 def generar_pdf_informe(doc_data):
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
