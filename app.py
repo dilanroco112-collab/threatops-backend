@@ -27,22 +27,46 @@ def add_cors(response):
     return response
 
 
-# CONFIGURACIÓN APIS
+
+# CONFIGURACIÓN — todo desde variables de entorno
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 VT_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 ABUSE_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
 IPINFO_KEY = os.environ.get("IPINFO_TOKEN", "")
 SHODAN_KEY = os.environ.get("SHODAN_API_KEY", "")
-SHODAN_KEY = os.environ.get("SHODAN_API_KEY", "")
+URLSCAN_KEY = os.environ.get("URLSCAN_API_KEY", "")
 
 client_mongo = MongoClient(MONGODB_URI)
 db = client_mongo.threatops
 
 
 
-#  — 3 APIs en paralelo
+# DETECTOR DE TIPO DE IOC
+import re
+import base64
 
-def enriquecer_sync(ioc):
+
+def detectar_tipo_ioc(valor):
+    valor = valor.strip()
+
+    # URL — empieza con http:// o https://
+    if re.match(r"^https?://", valor, re.IGNORECASE):
+        return "url"
+
+    # IP (IPv4 simple)
+    if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", valor):
+        return "ip"
+
+    # Dominio — tiene al menos un punto y no es IP
+    if re.match(r"^[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$", valor):
+        return "domain"
+
+    return "ip"  # por defecto, si no matchea nada
+
+
+
+# ENRIQUECIMIENTO — 3 APIs en paralelo
+def enriquecer_ip(ioc):
 
     def get_vt():
         try:
@@ -163,9 +187,159 @@ def enriquecer_sync(ioc):
     return {"fuentes": [vt, abuse, ipinfo, shodan], "score": score}
 
 
+def enriquecer_domain(dominio):
+    def get_vt_domain():
+        try:
+            r = httpx.get(
+                f"https://www.virustotal.com/api/v3/domains/{dominio}",
+                headers={"x-apikey": VT_KEY}, timeout=8
+            )
+            attrs = r.json().get("data", {}).get("attributes", {})
+            stats = attrs.get("last_analysis_stats", {})
+            return {
+                "fuente": "VirusTotal",
+                "malicious": stats.get("malicious", 0),
+                "suspicious": stats.get("suspicious", 0),
+                "harmless": stats.get("harmless", 0),
+                "undetected": stats.get("undetected", 0),
+                "reputacion": attrs.get("reputation", 0),
+                "categorias": list((attrs.get("categories") or {}).values())[:3],
+                "status": "ok"
+            }
+        except Exception:
+            return {"fuente": "VirusTotal", "status": "error"}
 
-# GENERADOR DE PDF 
+    def get_urlscan_domain():
+        try:
+            r = httpx.get(
+                "https://urlscan.io/api/v1/search/",
+                params={"q": f"domain:{dominio}", "size": 5},
+                headers={"API-Key": URLSCAN_KEY}, timeout=8
+            )
+            resultados = r.json().get("results", [])
+            if not resultados:
+                return {
+                    "fuente": "URLScan",
+                    "escaneos_encontrados": 0,
+                    "status": "ok",
+                    "nota": "sin escaneos previos registrados"
+                }
+            ultimo = resultados[0]
+            return {
+                "fuente": "URLScan",
+                "escaneos_encontrados": len(resultados),
+                "ultimo_scan_ip": ultimo.get("page", {}).get("ip", "N/A"),
+                "ultimo_scan_pais": ultimo.get("page", {}).get("country", "N/A"),
+                "ultimo_scan_server": ultimo.get("page", {}).get("server", "N/A"),
+                "screenshot_url": ultimo.get("screenshot", ""),
+                "status": "ok"
+            }
+        except Exception:
+            return {"fuente": "URLScan", "status": "error"}
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_vt = executor.submit(get_vt_domain)
+        future_urlscan = executor.submit(get_urlscan_domain)
+        vt = future_vt.result()
+        urlscan = future_urlscan.result()
+
+    score = 0
+    if vt.get("status") == "ok":
+        total_motores = vt["malicious"] + vt["suspicious"] + vt["harmless"] + vt.get("undetected", 0)
+        if total_motores > 0:
+            ratio_malicioso = vt["malicious"] / total_motores
+            score += math.sqrt(ratio_malicioso) * 70
+        score += vt["suspicious"] * 1.5
+        if vt.get("reputacion", 0) < 0:
+            score += min(abs(vt["reputacion"]), 20)
+    score = min(round(score), 100)
+
+    return {"fuentes": [vt, urlscan], "score": score}
+
+
+def enriquecer_url(url_completa):
+    url_id = base64.urlsafe_b64encode(url_completa.encode()).decode().strip("=")
+
+    def get_vt_url():
+        try:
+            r = httpx.get(
+                f"https://www.virustotal.com/api/v3/urls/{url_id}",
+                headers={"x-apikey": VT_KEY}, timeout=8
+            )
+            if r.status_code == 404:
+                # si no existe, la enviamos a analizar
+                httpx.post(
+                    "https://www.virustotal.com/api/v3/urls",
+                    headers={"x-apikey": VT_KEY},
+                    data={"url": url_completa}, timeout=8
+                )
+                return {
+                    "fuente": "VirusTotal",
+                    "status": "ok",
+                    "nota": "URL enviada a analisis, aun sin resultados indexados"
+                }
+            attrs = r.json().get("data", {}).get("attributes", {})
+            stats = attrs.get("last_analysis_stats", {})
+            return {
+                "fuente": "VirusTotal",
+                "malicious": stats.get("malicious", 0),
+                "suspicious": stats.get("suspicious", 0),
+                "harmless": stats.get("harmless", 0),
+                "undetected": stats.get("undetected", 0),
+                "titulo_pagina": attrs.get("title", "N/A"),
+                "status": "ok"
+            }
+        except Exception:
+            return {"fuente": "VirusTotal", "status": "error"}
+
+    def get_urlscan_url():
+        try:
+            r = httpx.get(
+                "https://urlscan.io/api/v1/search/",
+                params={"q": f"page.url:\"{url_completa}\"", "size": 3},
+                headers={"API-Key": URLSCAN_KEY}, timeout=8
+            )
+            resultados = r.json().get("results", [])
+            if not resultados:
+                return {
+                    "fuente": "URLScan",
+                    "escaneos_encontrados": 0,
+                    "status": "ok",
+                    "nota": "sin escaneos previos registrados"
+                }
+            ultimo = resultados[0]
+            return {
+                "fuente": "URLScan",
+                "escaneos_encontrados": len(resultados),
+                "ip": ultimo.get("page", {}).get("ip", "N/A"),
+                "pais": ultimo.get("page", {}).get("country", "N/A"),
+                "server": ultimo.get("page", {}).get("server", "N/A"),
+                "screenshot_url": ultimo.get("screenshot", ""),
+                "status": "ok"
+            }
+        except Exception:
+            return {"fuente": "URLScan", "status": "error"}
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+        future_vt = executor.submit(get_vt_url)
+        future_urlscan = executor.submit(get_urlscan_url)
+        vt = future_vt.result()
+        urlscan = future_urlscan.result()
+
+    score = 0
+    if vt.get("status") == "ok" and "malicious" in vt:
+        total_motores = vt["malicious"] + vt["suspicious"] + vt["harmless"] + vt.get("undetected", 0)
+        if total_motores > 0:
+            ratio_malicioso = vt["malicious"] / total_motores
+            score += math.sqrt(ratio_malicioso) * 75
+        score += vt["suspicious"] * 1.5
+    score = min(round(score), 100)
+
+    return {"fuentes": [vt, urlscan], "score": score}
+
+
+
+# GENERADOR DE PDF
 def generar_pdf_informe(doc_data):
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
@@ -314,6 +488,7 @@ def generar_pdf_informe(doc_data):
     return buffer
 
 
+
 # ENDPOINTS
 @app.route("/")
 def root():
@@ -337,10 +512,18 @@ def enrich():
     if not ioc:
         return jsonify({"error": "IOC requerido"}), 400
 
-    enriquecido = enriquecer_sync(ioc)
+    tipo = detectar_tipo_ioc(ioc)
+
+    if tipo == "domain":
+        enriquecido = enriquecer_domain(ioc)
+    elif tipo == "url":
+        enriquecido = enriquecer_url(ioc)
+    else:
+        enriquecido = enriquecer_ip(ioc)
 
     return jsonify({
         "ioc": ioc,
+        "tipo": tipo,
         "resultado": enriquecido
     })
 
