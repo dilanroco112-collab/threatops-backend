@@ -3,6 +3,7 @@ from pymongo import MongoClient
 import httpx
 import json
 import os
+import math
 import concurrent.futures
 from datetime import datetime, timezone
 from io import BytesIO
@@ -26,9 +27,7 @@ def add_cors(response):
     return response
 
 
-# ============================================
-# CONFIGURACIÓN — todo desde variables de entorno
-# ============================================
+# CONFIGURACIÓN APIS
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 VT_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 ABUSE_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
@@ -40,9 +39,9 @@ client_mongo = MongoClient(MONGODB_URI)
 db = client_mongo.threatops
 
 
-# ============================================
-# ENRIQUECIMIENTO — 3 APIs en paralelo
-# ============================================
+
+#  — 3 APIs en paralelo
+
 def enriquecer_sync(ioc):
 
     def get_vt():
@@ -57,6 +56,7 @@ def enriquecer_sync(ioc):
                 "malicious": stats.get("malicious", 0),
                 "suspicious": stats.get("suspicious", 0),
                 "harmless": stats.get("harmless", 0),
+                "undetected": stats.get("undetected", 0),
                 "status": "ok"
             }
         except Exception:
@@ -103,7 +103,7 @@ def enriquecer_sync(ioc):
         try:
             r = httpx.get(
                 f"https://api.shodan.io/shodan/host/{ioc}",
-                params={"key": SHODAN_KEY}, timeout=10
+                params={"key": SHODAN_KEY}, timeout=5
             )
             if r.status_code == 404:
                 return {
@@ -143,20 +143,29 @@ def enriquecer_sync(ioc):
         shodan = future_shodan.result()
 
     score = 0
+
     if vt.get("status") == "ok":
-        score += vt["malicious"] * 2
+        total_motores = vt["malicious"] + vt["suspicious"] + vt["harmless"] + vt.get("undetected", 0)
+        if total_motores > 0:
+            ratio_malicioso = vt["malicious"] / total_motores
+            # raiz cuadrada para que incluso un % parcial de detecciones pese
+            score += math.sqrt(ratio_malicioso) * 65
+        score += vt["suspicious"] * 1.5
+
     if abuse.get("status") == "ok":
-        score += abuse["confidence_score"] * 0.5
+        score += abuse["confidence_score"] * 0.35
+
     if shodan.get("status") == "ok" and shodan.get("vulnerabilidades"):
         score += len(shodan["vulnerabilidades"]) * 3
+
     score = min(round(score), 100)
 
     return {"fuentes": [vt, abuse, ipinfo, shodan], "score": score}
 
 
-# ============================================
-# GENERADOR DE PDF — nivel ingeniería
-# ============================================
+
+# GENERADOR DE PDF 
+
 def generar_pdf_informe(doc_data):
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
@@ -305,9 +314,7 @@ def generar_pdf_informe(doc_data):
     return buffer
 
 
-# ============================================
 # ENDPOINTS
-# ============================================
 @app.route("/")
 def root():
     return jsonify({"status": "running", "plataforma": "ThreatOps v1.0", "dashboard": "/dashboard"})
