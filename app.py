@@ -27,7 +27,6 @@ def add_cors(response):
     return response
 
 
-
 # CONFIGURACIÓN — todo desde variables de entorno
 
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
@@ -65,6 +64,7 @@ def detectar_tipo_ioc(valor):
         return "domain"
 
     return "ip"  # por defecto, si no matchea nada
+
 
 
 # ENRIQUECIMIENTO — 3 APIs en paralelo
@@ -341,8 +341,8 @@ def enriquecer_url(url_completa):
     return {"fuentes": [vt, urlscan], "score": score}
 
 
-# GENERADOR DE PDF — nivel ingeniería
-
+# GENERADOR DE PDF 
+=
 def generar_pdf_informe(doc_data):
     buffer = BytesIO()
     pdf = SimpleDocTemplate(
@@ -491,6 +491,7 @@ def generar_pdf_informe(doc_data):
     return buffer
 
 
+
 # ENDPOINTS
 
 @app.route("/")
@@ -604,6 +605,8 @@ def extraer_prefijo_red(ip):
 
 @app.route("/hunt", methods=["POST"])
 def hunt():
+    inicio_hunt = datetime.now(timezone.utc)
+
     data = request.json or {}
     ioc = data.get("ioc", "")
     tipo = data.get("tipo", "ip")
@@ -656,25 +659,40 @@ def hunt():
 
     # 5. EVIDENCIAS DEL ULTIMO ANALISIS — para que el Hunter pueda citarlas
     evidencias = []
+    mitre_previo = None
+    fuentes_disponibles = {
+        "virustotal": False, "abuseipdb": False, "threatfox": False,
+        "urlscan": False, "mongo": len(historial) > 0
+    }
+
     if historial:
         ultimo = historial[-1]
+        mitre_previo = ultimo.get("mitre_tactica")
         evidencias.append(f"Score de riesgo: {ultimo.get('score', 0)}/100")
-        if ultimo.get("mitre_tactica"):
-            evidencias.append(f"MITRE: {ultimo.get('mitre_tactica')}")
+        if mitre_previo:
+            evidencias.append(f"MITRE: {mitre_previo}")
         try:
             fuentes_ultimo = ultimo.get("fuentes")
             if isinstance(fuentes_ultimo, str):
                 fuentes_ultimo = json.loads(fuentes_ultimo)
             for f in fuentes_ultimo or []:
                 if f.get("fuente") == "VirusTotal" and f.get("status") == "ok":
+                    fuentes_disponibles["virustotal"] = True
                     evidencias.append(
                         f"VirusTotal: {f.get('malicious', 0)} maliciosos de "
                         f"{f.get('malicious', 0) + f.get('suspicious', 0) + f.get('harmless', 0) + f.get('undetected', 0)} motores"
                     )
                 if f.get("fuente") == "AbuseIPDB" and f.get("status") == "ok":
+                    fuentes_disponibles["abuseipdb"] = True
                     evidencias.append(f"AbuseIPDB: {f.get('confidence_score', 0)}% confianza, {f.get('total_reports', 0)} reportes")
+                if f.get("fuente") == "URLScan" and f.get("status") == "ok":
+                    fuentes_disponibles["urlscan"] = True
         except Exception:
             pass
+
+    fuentes_disponibles["threatfox"] = threatfox.get("status") == "ok" and threatfox.get("encontrado") is not None
+
+    duracion_segundos = (datetime.now(timezone.utc) - inicio_hunt).total_seconds()
 
     return jsonify({
         "ioc": ioc,
@@ -682,7 +700,10 @@ def hunt():
         "infraestructura_relacionada": infra_relacionada,
         "iocs_relacionados": iocs_relacionados,
         "threatfox": threatfox,
-        "evidencias_analisis_previo": evidencias
+        "evidencias_analisis_previo": evidencias,
+        "mitre_previo": mitre_previo,
+        "fuentes_consultadas": fuentes_disponibles,
+        "duracion_analisis_segundos": round(duracion_segundos, 2)
     })
 
 
@@ -707,7 +728,5 @@ def report_pdf():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
