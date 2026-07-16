@@ -28,9 +28,9 @@ def add_cors(response):
     return response
 
 
-
+# ============================================
 # CONFIGURACIÓN — todo desde variables de entorno
-
+# ============================================
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 VT_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 ABUSE_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
@@ -43,9 +43,9 @@ client_mongo = MongoClient(MONGODB_URI)
 db = client_mongo.threatops
 
 
-
+# ============================================
 # DETECTOR DE TIPO DE IOC
-
+# ============================================
 import re
 import base64
 
@@ -68,9 +68,9 @@ def detectar_tipo_ioc(valor):
     return "ip"  # por defecto, si no matchea nada
 
 
-
+# ============================================
 # ENRIQUECIMIENTO — 3 APIs en paralelo
-
+# ============================================
 def enriquecer_ip(ioc):
 
     def get_vt():
@@ -145,9 +145,35 @@ def enriquecer_ip(ioc):
                 }
             d = r.json()
             servicios = []
-            for item in d.get("data", [])[:5]:
+            for item in d.get("data", [])[:8]:
                 servicio = item.get("product", "") or item.get("_shodan", {}).get("module", "desconocido")
-                servicios.append(f"{item.get('port')}/{servicio}")
+                puerto = item.get("port")
+
+                detalle_servicio = {"puerto": puerto, "servicio": servicio}
+
+                http_info = item.get("http")
+                if http_info:
+                    titulo = http_info.get("title")
+                    if titulo:
+                        detalle_servicio["titulo_pagina"] = titulo[:80]
+
+                    headers_seguridad = http_info.get("headers") or {}
+                    faltantes = []
+                    for h in ["x-frame-options", "content-security-policy", "strict-transport-security"]:
+                        if h not in {k.lower(): v for k, v in headers_seguridad.items()}:
+                            faltantes.append(h)
+                    if faltantes:
+                        detalle_servicio["headers_seguridad_faltantes"] = faltantes
+
+                ssl_info = item.get("ssl")
+                if ssl_info:
+                    cert = ssl_info.get("cert", {})
+                    expira = cert.get("expires")
+                    if expira:
+                        detalle_servicio["certificado_ssl_expira"] = expira
+
+                servicios.append(detalle_servicio)
+
             return {
                 "fuente": "Shodan",
                 "puertos_abiertos": d.get("ports", []),
@@ -192,6 +218,29 @@ def enriquecer_ip(ioc):
     return {"fuentes": [vt, abuse, ipinfo, shodan], "score": score}
 
 
+def get_urlscan_detalle_completo(scan_uuid):
+    """Consulta el endpoint de resultado completo de un escaneo ya existente en URLScan"""
+    try:
+        r = httpx.get(
+            f"https://urlscan.io/api/v1/result/{scan_uuid}/",
+            headers={"API-Key": URLSCAN_KEY}, timeout=8
+        )
+        if r.status_code != 200:
+            return {}
+        data = r.json()
+        listas = data.get("lists", {})
+        veredicto = data.get("verdicts", {}).get("overall", {})
+        return {
+            "dominios_contactados": (listas.get("domains") or [])[:10],
+            "ips_contactadas": (listas.get("ips") or [])[:10],
+            "certificados": (listas.get("certificates") or [])[:3],
+            "urlscan_malicioso": veredicto.get("malicious", False),
+            "urlscan_score": veredicto.get("score", 0)
+        }
+    except Exception:
+        return {}
+
+
 def enriquecer_domain(dominio):
     def get_vt_domain():
         try:
@@ -230,7 +279,7 @@ def enriquecer_domain(dominio):
                     "nota": "sin escaneos previos registrados"
                 }
             ultimo = resultados[0]
-            return {
+            respuesta = {
                 "fuente": "URLScan",
                 "escaneos_encontrados": len(resultados),
                 "ultimo_scan_ip": ultimo.get("page", {}).get("ip", "N/A"),
@@ -239,6 +288,11 @@ def enriquecer_domain(dominio):
                 "screenshot_url": ultimo.get("screenshot", ""),
                 "status": "ok"
             }
+            scan_uuid = ultimo.get("task", {}).get("uuid")
+            if scan_uuid:
+                detalle = get_urlscan_detalle_completo(scan_uuid)
+                respuesta.update(detalle)
+            return respuesta
         except Exception:
             return {"fuente": "URLScan", "status": "error"}
 
@@ -313,7 +367,7 @@ def enriquecer_url(url_completa):
                     "nota": "sin escaneos previos registrados"
                 }
             ultimo = resultados[0]
-            return {
+            respuesta = {
                 "fuente": "URLScan",
                 "escaneos_encontrados": len(resultados),
                 "ip": ultimo.get("page", {}).get("ip", "N/A"),
@@ -322,6 +376,11 @@ def enriquecer_url(url_completa):
                 "screenshot_url": ultimo.get("screenshot", ""),
                 "status": "ok"
             }
+            scan_uuid = ultimo.get("task", {}).get("uuid")
+            if scan_uuid:
+                detalle = get_urlscan_detalle_completo(scan_uuid)
+                respuesta.update(detalle)
+            return respuesta
         except Exception:
             return {"fuente": "URLScan", "status": "error"}
 
@@ -343,8 +402,9 @@ def enriquecer_url(url_completa):
     return {"fuentes": [vt, urlscan], "score": score}
 
 
-# GENERADOR DE PDF
-
+# ============================================
+# GENERADOR DE PDF — nivel ingeniería
+# ============================================
 SEV_COLORS = {
     "LOW": colors.HexColor("#1e8449"),
     "MEDIUM": colors.HexColor("#b7950b"),
@@ -539,7 +599,7 @@ def generar_pdf_informe(doc_data):
             story.append(Paragraph("<b>IOCs correlacionados:</b> " + ", ".join(iocs_rel), body_small))
 
 
-    #  HALLAZGOS TECNICOS
+    # ---------- HALLAZGOS TECNICOS ----------
     num_sec = 3 if isinstance(siem, dict) else 2
     story.append(Paragraph(f"{num_sec}&nbsp;&nbsp;HALLAZGOS TECNICOS POR FUENTE", h2_style))
     story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#5a6a7a"), spaceAfter=8))
@@ -605,7 +665,9 @@ def generar_pdf_informe(doc_data):
     return buffer
 
 
+# ============================================
 # ENDPOINTS
+# ============================================
 @app.route("/")
 def root():
     return jsonify({"status": "running", "plataforma": "ThreatOps v1.0", "dashboard": "/dashboard"})
