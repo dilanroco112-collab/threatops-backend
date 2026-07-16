@@ -13,8 +13,9 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                  TableStyle, HRFlowable)
-from reportlab.lib.enums import TA_LEFT
+                                  TableStyle, HRFlowable, KeepTogether)
+from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from reportlab.pdfgen import canvas as pdfcanvas
 
 app = Flask(__name__)
 
@@ -25,6 +26,7 @@ def add_cors(response):
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
     response.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
     return response
+
 
 
 # CONFIGURACIÓN — todo desde variables de entorno
@@ -341,102 +343,206 @@ def enriquecer_url(url_completa):
     return {"fuentes": [vt, urlscan], "score": score}
 
 
-# GENERADOR DE PDF 
+# GENERADOR DE PDF
+
+SEV_COLORS = {
+    "LOW": colors.HexColor("#1e8449"),
+    "MEDIUM": colors.HexColor("#b7950b"),
+    "HIGH": colors.HexColor("#d35400"),
+    "CRITICAL": colors.HexColor("#c0392b"),
+    "UNKNOWN": colors.HexColor("#5d6d7e")
+}
+
+
+def _header_footer(canvas_obj, doc, ioc_value, sev_color, sev_label):
+    canvas_obj.saveState()
+    page_w, page_h = letter
+
+    # Banda superior de color segun severidad
+    canvas_obj.setFillColor(colors.HexColor("#0a0e14"))
+    canvas_obj.rect(0, page_h - 0.55 * inch, page_w, 0.55 * inch, fill=1, stroke=0)
+    canvas_obj.setFillColor(sev_color)
+    canvas_obj.rect(0, page_h - 0.55 * inch, 0.12 * inch, 0.55 * inch, fill=1, stroke=0)
+
+    canvas_obj.setFont("Helvetica-Bold", 10)
+    canvas_obj.setFillColor(colors.white)
+    canvas_obj.drawString(0.35 * inch, page_h - 0.35 * inch, "THREATOPS PLATFORM")
+    canvas_obj.setFont("Helvetica", 8)
+    canvas_obj.setFillColor(colors.HexColor("#9aa5b1"))
+    canvas_obj.drawRightString(page_w - 0.35 * inch, page_h - 0.35 * inch, f"IOC: {ioc_value}  |  TLP:AMBER")
+
+    # Pie de pagina
+    canvas_obj.setFont("Helvetica", 7.5)
+    canvas_obj.setFillColor(colors.HexColor("#8a94a0"))
+    canvas_obj.drawString(0.7 * inch, 0.4 * inch,
+        "Documento confidencial - Olimpia Offensive Security - Generado automaticamente por ThreatOps")
+    canvas_obj.drawRightString(page_w - 0.7 * inch, 0.4 * inch, f"Pagina {doc.page}")
+    canvas_obj.setStrokeColor(colors.HexColor("#e0e0e0"))
+    canvas_obj.line(0.7 * inch, 0.55 * inch, page_w - 0.7 * inch, 0.55 * inch)
+
+    canvas_obj.restoreState()
+
 
 def generar_pdf_informe(doc_data):
     buffer = BytesIO()
+
+    sev = doc_data.get("severity", "UNKNOWN")
+    sev_color = SEV_COLORS.get(sev, colors.grey)
+    ioc_value = doc_data.get("ioc_value", "-")
+
     pdf = SimpleDocTemplate(
         buffer, pagesize=letter,
-        topMargin=0.6 * inch, bottomMargin=0.6 * inch,
+        topMargin=0.85 * inch, bottomMargin=0.75 * inch,
         leftMargin=0.7 * inch, rightMargin=0.7 * inch
     )
 
     styles = getSampleStyleSheet()
     story = []
 
-    sev = doc_data.get("severity", "UNKNOWN")
-    sev_colors = {
-        "LOW": colors.HexColor("#1e8449"),
-        "MEDIUM": colors.HexColor("#b7950b"),
-        "HIGH": colors.HexColor("#d35400"),
-        "CRITICAL": colors.HexColor("#c0392b"),
-        "UNKNOWN": colors.HexColor("#5d6d7e")
-    }
-    sev_color = sev_colors.get(sev, colors.grey)
-
     title_style = ParagraphStyle(
         "TitleC", parent=styles["Title"],
-        fontSize=22, textColor=colors.HexColor("#0a0e14"), spaceAfter=4, alignment=TA_LEFT
+        fontSize=21, textColor=colors.HexColor("#0a0e14"), spaceAfter=2, alignment=TA_LEFT,
+        fontName="Helvetica-Bold"
     )
     sub_style = ParagraphStyle(
         "Sub", parent=styles["Normal"],
-        fontSize=10, textColor=colors.HexColor("#6b7686"), spaceAfter=14
+        fontSize=9.5, textColor=colors.HexColor("#6b7686"), spaceAfter=16
     )
     h2_style = ParagraphStyle(
         "H2", parent=styles["Heading2"],
-        fontSize=13, textColor=colors.HexColor("#0a0e14"), spaceBefore=16, spaceAfter=8
+        fontSize=12.5, textColor=colors.HexColor("#0a0e14"), spaceBefore=18, spaceAfter=8,
+        fontName="Helvetica-Bold", borderPadding=0
     )
     body_style = ParagraphStyle(
         "Body", parent=styles["Normal"],
-        fontSize=10, leading=15, textColor=colors.HexColor("#1a1a1a"), spaceAfter=8, alignment=TA_LEFT
+        fontSize=9.7, leading=15, textColor=colors.HexColor("#1a1a1a"), spaceAfter=8, alignment=TA_LEFT
+    )
+    body_small = ParagraphStyle(
+        "BodySmall", parent=body_style, fontSize=9, textColor=colors.HexColor("#3a4450")
     )
     label_style = ParagraphStyle(
         "Label", parent=styles["Normal"],
-        fontSize=8, textColor=colors.HexColor("#6b7686"), spaceAfter=2
+        fontSize=7.5, textColor=colors.HexColor("#8a94a0"), spaceAfter=2
+    )
+    quote_style = ParagraphStyle(
+        "Quote", parent=body_style, fontSize=9.3, textColor=colors.HexColor("#2a3138"),
+        leftIndent=10, borderColor=sev_color, borderWidth=0, spaceAfter=10
     )
 
+    # ---------- TITULO ----------
     story.append(Paragraph("INFORME DE INTELIGENCIA DE AMENAZAS", title_style))
     story.append(Paragraph(
-        "ThreatOps Platform &middot; Olimpia Offensive Security &middot; Clasificacion TLP:AMBER",
+        "ThreatOps Platform &middot; Olimpia Offensive Security &middot; Analisis automatizado multi-fuente",
         sub_style
     ))
-    story.append(HRFlowable(width="100%", thickness=1.5, color=sev_color, spaceAfter=14))
 
+    # ---------- BLOQUE RESUMEN: score gauge + metadata ----------
     fecha_str = doc_data.get("created_at", "-")
     if fecha_str and fecha_str != "-":
-        fecha_str = str(fecha_str)[:19].replace("T", " ")
+        fecha_str = str(fecha_str)[:19].replace("T", " ") + " UTC"
 
-    meta_table = Table([
-        ["INDICADOR ANALIZADO", doc_data.get("ioc_value", "-")],
+    score_val = doc_data.get("score", 0)
+
+    # Gauge visual simple: barra horizontal coloreada proporcional al score
+    gauge_width = 3.0
+    filled = (score_val / 100.0) * gauge_width
+    gauge_table = Table(
+        [[f"{score_val}", ""]],
+        colWidths=[gauge_width * inch],
+        rowHeights=[0.32 * inch]
+    )
+    gauge_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#eceff2")),
+        ("ALIGN", (0, 0), (0, 0), "LEFT"),
+        ("VALIGN", (0, 0), (0, 0), "MIDDLE"),
+    ]))
+
+    resumen_izq = Table([
+        ["INDICADOR", ioc_value],
         ["TIPO", (doc_data.get("ioc_type", "ip") or "ip").upper()],
-        ["SEVERIDAD", sev],
-        ["SCORE DE RIESGO", str(doc_data.get("score", 0)) + "/100"],
-        ["CONFIANZA DEL ANALISIS", str(doc_data.get("confianza_ia", 0)) + "%"],
         ["FECHA DE ANALISIS", fecha_str],
-    ], colWidths=[2.1 * inch, 4 * inch])
-    meta_table.setStyle(TableStyle([
-        ("FONTSIZE", (0, 0), (-1, -1), 9),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#6b7686")),
+        ["CONFIANZA DEL MODELO", str(doc_data.get("confianza_ia", 0)) + "%"],
+    ], colWidths=[1.6 * inch, 2.9 * inch])
+    resumen_izq.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 8.7),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#8a94a0")),
         ("TEXTCOLOR", (1, 0), (1, -1), colors.HexColor("#0a0e14")),
         ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
         ("FONTNAME", (1, 0), (1, -1), "Helvetica"),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 7),
-        ("LINEBELOW", (0, 0), (-1, -2), 0.5, colors.HexColor("#e0e0e0")),
-        ("BACKGROUND", (0, 2), (1, 2), sev_color),
-        ("TEXTCOLOR", (0, 2), (1, 2), colors.white),
-        ("FONTNAME", (1, 2), (1, 2), "Helvetica-Bold"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.4, colors.HexColor("#eeeeee")),
     ]))
-    story.append(meta_table)
-    story.append(Spacer(1, 18))
 
-    story.append(Paragraph("1. RESUMEN EJECUTIVO", h2_style))
-    story.append(Paragraph("<b>Veredicto:</b> " + str(doc_data.get('veredicto', '-')), body_style))
+    severidad_box = Table([
+        [Paragraph(f'<font color="white"><b>{sev}</b></font>', ParagraphStyle("sevbig", fontSize=16, alignment=TA_CENTER))],
+        [Paragraph(f'<font color="white">Score de riesgo: {score_val}/100</font>', ParagraphStyle("sevsmall", fontSize=9, alignment=TA_CENTER))],
+    ], colWidths=[2.1 * inch], rowHeights=[0.42 * inch, 0.3 * inch])
+    severidad_box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), sev_color),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), 8),
+    ]))
+
+    contenedor = Table([[resumen_izq, severidad_box]], colWidths=[4.6 * inch, 2.1 * inch])
+    contenedor.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (1, 0), (1, 0), 12),
+    ]))
+    story.append(contenedor)
+    story.append(Spacer(1, 4))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e0e0e0"), spaceAfter=14))
+
+    # ---------- 1. RESUMEN EJECUTIVO ----------
+    story.append(Paragraph("1&nbsp;&nbsp;RESUMEN EJECUTIVO", h2_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=sev_color, spaceAfter=8))
+    veredicto_box = Table([[Paragraph(
+        f"<b>Veredicto:</b> {doc_data.get('veredicto', '-')}", quote_style
+    )]], colWidths=[6.6 * inch])
+    veredicto_box.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f7f8fa")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#e0e0e0")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 12),
+        ("TOPPADDING", (0, 0), (-1, -1), 10),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+    ]))
+    story.append(veredicto_box)
+    story.append(Spacer(1, 8))
     story.append(Paragraph(str(doc_data.get("narrativa", "Sin narrativa disponible.")), body_style))
     if doc_data.get("actor_probable"):
         story.append(Paragraph("<b>Actor probable:</b> " + str(doc_data.get('actor_probable')), body_style))
 
-    # Correlación SIEM, si viene incluida
+    # ---------- 2. CORRELACION SIEM ----------
     siem = doc_data.get("correlacion_siem")
     if isinstance(siem, str):
         try:
             siem = json.loads(siem)
         except Exception:
             siem = None
-    if isinstance(siem, dict) and siem.get("hay_correlacion"):
-        story.append(Paragraph("<b>Correlacion SIEM:</b> " + str(siem.get("resumen", "")), body_style))
+    if isinstance(siem, dict):
+        story.append(Paragraph("2&nbsp;&nbsp;CORRELACION SIEM", h2_style))
+        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#5a6a7a"), spaceAfter=8))
+        hay_corr = siem.get("hay_correlacion")
+        sev_camp = siem.get("severidad_campana", "LOW")
+        estado_txt = "PATRON DETECTADO" if hay_corr else "SIN PATRON DETECTADO"
+        estado_color = SEV_COLORS.get(sev_camp, colors.grey) if hay_corr else colors.HexColor("#1e8449")
+        story.append(Paragraph(f'<font color="{estado_color.hexval()}"><b>{estado_txt}</b></font> &middot; severidad de campaña: {sev_camp}', body_style))
+        story.append(Paragraph(str(siem.get("resumen", "Sin correlaciones detectadas.")), body_style))
+        iocs_rel = siem.get("iocs_involucrados", [])
+        if isinstance(iocs_rel, str):
+            try:
+                iocs_rel = json.loads(iocs_rel)
+            except Exception:
+                iocs_rel = []
+        if iocs_rel:
+            story.append(Paragraph("<b>IOCs correlacionados:</b> " + ", ".join(iocs_rel), body_small))
 
-    story.append(Paragraph("2. HALLAZGOS TECNICOS POR FUENTE", h2_style))
+
+    #  HALLAZGOS TECNICOS
+    num_sec = 3 if isinstance(siem, dict) else 2
+    story.append(Paragraph(f"{num_sec}&nbsp;&nbsp;HALLAZGOS TECNICOS POR FUENTE", h2_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#5a6a7a"), spaceAfter=8))
     fuentes = doc_data.get("fuentes", [])
     if isinstance(fuentes, str):
         try:
@@ -446,54 +552,60 @@ def generar_pdf_informe(doc_data):
     for f in fuentes:
         if f.get("status") != "ok":
             continue
-        rows = [[k.replace("_", " ").upper(), str(v)] for k, v in f.items() if k not in ("fuente", "status")]
-        t = Table([[f.get("fuente", "-"), ""]] + rows, colWidths=[2.3 * inch, 3.8 * inch])
+        rows = [[k.replace("_", " ").upper(), str(v)[:80]] for k, v in f.items() if k not in ("fuente", "status")]
+        if not rows:
+            continue
+        t = Table([[f.get("fuente", "-"), ""]] + rows, colWidths=[2.3 * inch, 4.3 * inch])
         t.setStyle(TableStyle([
             ("SPAN", (0, 0), (1, 0)),
             ("BACKGROUND", (0, 0), (1, 0), colors.HexColor("#141a24")),
             ("TEXTCOLOR", (0, 0), (1, 0), colors.white),
             ("FONTNAME", (0, 0), (1, 0), "Helvetica-Bold"),
-            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.3),
             ("TEXTCOLOR", (0, 1), (0, -1), colors.HexColor("#6b7686")),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
             ("TOPPADDING", (0, 0), (-1, -1), 5),
             ("LINEBELOW", (0, 1), (-1, -1), 0.4, colors.HexColor("#e8e8e8")),
             ("LEFTPADDING", (0, 0), (-1, -1), 8),
         ]))
-        story.append(t)
-        story.append(Spacer(1, 8))
+        story.append(KeepTogether([t, Spacer(1, 8)]))
 
-    story.append(Paragraph("3. CLASIFICACION MITRE ATT&CK", h2_style))
+    # ---------- MITRE ----------
+    num_sec += 1
+    story.append(Paragraph(f"{num_sec}&nbsp;&nbsp;CLASIFICACION MITRE ATT&amp;CK", h2_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#5a6a7a"), spaceAfter=8))
     story.append(Paragraph(
         "<b>Tactica / Tecnica identificada:</b> " + str(doc_data.get('mitre_tactica', 'No determinado')),
         body_style
     ))
 
-    story.append(Paragraph("4. RECOMENDACIONES DE REMEDIACION", h2_style))
+    # ---------- RECOMENDACIONES ----------
+    num_sec += 1
+    story.append(Paragraph(f"{num_sec}&nbsp;&nbsp;RECOMENDACIONES DE REMEDIACION", h2_style))
+    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor("#5a6a7a"), spaceAfter=8))
     remed = doc_data.get("remediacion", "Sin recomendaciones registradas.") or "Sin recomendaciones registradas."
     for i, accion in enumerate(str(remed).split(";"), 1):
         accion = accion.strip()
         if accion:
-            story.append(Paragraph("<b>" + str(i) + ".</b> " + accion, body_style))
+            story.append(Paragraph(f"<b>{i}.</b> {accion}", body_style))
 
-    story.append(Spacer(1, 20))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc")))
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 16))
     story.append(Paragraph(
         "Documento generado automaticamente por ThreatOps Platform. Motor de analisis: enriquecimiento multi-fuente "
-        "(VirusTotal, AbuseIPDB, IPInfo) + agentes de IA nativos de n8n. Este informe es confidencial y de uso "
-        "interno para el equipo de Offensive Security de Olimpia.",
+        "(VirusTotal, AbuseIPDB, IPInfo, Shodan, URLScan) + agentes de IA nativos de n8n (Analista, SIEM). "
+        "Este informe es confidencial y de uso interno para el equipo de Offensive Security de Olimpia.",
         label_style
     ))
 
-    pdf.build(story)
+    def on_page(c, d):
+        _header_footer(c, d, ioc_value, sev_color, sev)
+
+    pdf.build(story, onFirstPage=on_page, onLaterPages=on_page)
     buffer.seek(0)
     return buffer
 
 
-
 # ENDPOINTS
-
 @app.route("/")
 def root():
     return jsonify({"status": "running", "plataforma": "ThreatOps v1.0", "dashboard": "/dashboard"})
@@ -718,6 +830,11 @@ def report_pdf():
     doc_data = db.iocs.find_one({"ioc_value": ioc}, {"_id": 0}, sort=[("created_at", -1)])
     if not doc_data:
         return jsonify({"error": "IOC no encontrado, analizalo primero"}), 404
+
+    # Traer correlacion SIEM mas reciente para este IOC, si existe
+    siem_doc = db.siem_events.find_one({"ioc_principal": ioc}, {"_id": 0}, sort=[("created_at", -1)])
+    if siem_doc:
+        doc_data["correlacion_siem"] = siem_doc
 
     buffer = generar_pdf_informe(doc_data)
     filename = "ThreatOps_Informe_" + ioc.replace(".", "_") + ".pdf"
