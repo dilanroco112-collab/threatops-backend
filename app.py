@@ -28,9 +28,7 @@ def add_cors(response):
     return response
 
 
-# ============================================
 # CONFIGURACIÓN — todo desde variables de entorno
-# ============================================
 MONGODB_URI = os.environ.get("MONGODB_URI", "")
 VT_KEY = os.environ.get("VIRUSTOTAL_API_KEY", "")
 ABUSE_KEY = os.environ.get("ABUSEIPDB_API_KEY", "")
@@ -43,9 +41,8 @@ client_mongo = MongoClient(MONGODB_URI)
 db = client_mongo.threatops
 
 
-# ============================================
+
 # DETECTOR DE TIPO DE IOC
-# ============================================
 import re
 import base64
 
@@ -68,9 +65,8 @@ def detectar_tipo_ioc(valor):
     return "ip"  # por defecto, si no matchea nada
 
 
-# ============================================
+
 # ENRIQUECIMIENTO — 3 APIs en paralelo
-# ============================================
 def enriquecer_ip(ioc):
 
     def get_vt():
@@ -402,9 +398,8 @@ def enriquecer_url(url_completa):
     return {"fuentes": [vt, urlscan], "score": score}
 
 
-# ============================================
+
 # GENERADOR DE PDF — nivel ingeniería
-# ============================================
 SEV_COLORS = {
     "LOW": colors.HexColor("#1e8449"),
     "MEDIUM": colors.HexColor("#b7950b"),
