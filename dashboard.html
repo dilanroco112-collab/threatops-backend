@@ -600,6 +600,8 @@ async function analyzeIOC(){
   const ioc = document.getElementById('iocInput').value.trim();
   if(!ioc){ return; }
 
+  document.getElementById('iocInput').value = '';
+
   const btn = document.getElementById('analyzeBtn');
   btn.disabled = true;
   btn.textContent = 'ANALIZANDO...';
